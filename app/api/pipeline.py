@@ -13,9 +13,18 @@ from app.schemas.schema import (
 
 router = APIRouter()
 
-SCRAPE_API= os.getenv("SCRAPE_API")
-PREPROCESS_API = os.getenv("PREPROCESS_API")
-COREF_API = os.getenv("COREF_API")
+import os
+
+def build_url(env_key: str, path: str) -> str:
+    base = os.environ.get(env_key)
+    if not base:
+        raise RuntimeError(f"Missing environment variable: {env_key}")
+    return f"{base.rstrip('/')}/{path.lstrip('/')}"
+
+SCRAPE_API = build_url("SCRAPE_API", "api/v1/scrape")
+PREPROCESS_API = build_url("PREPROCESS_API", "api/v1/preprocess")
+COREF_API = build_url("COREF_API", "api/v1/coref")
+
 
 # SCRAPE_API= 'http://localhost:8020/api/v1/scrape'
 # PREPROCESS_API = 'http://localhost:8000/api/v1/preprocess'
