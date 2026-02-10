@@ -11,6 +11,7 @@ class article(BaseModel):
     error_code: int | None = None
     error_message: str | None = None
     source: str | None = None
+    pipeline_status: str | None = None
 
 class coref_request(BaseModel): # the schema for the input request for coreference api. change this according to orchestration method
 

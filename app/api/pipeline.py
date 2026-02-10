@@ -50,6 +50,7 @@ async def pipeline(data: ScrapeRequest):
         {"url": str(data.url)}
     )
     scraped_article = article(**scraped_json)
+    scraped_article.pipeline_status = ["scraped"]
 
     # 2️⃣ Preprocess
     preprocessed_json = await run_in_threadpool(
@@ -58,6 +59,7 @@ async def pipeline(data: ScrapeRequest):
         scraped_article.model_dump()
     )
     preprocessed = article(**preprocessed_json)
+    preprocessed.pipeline_status = scraped_article.pipeline_status + ["preprocessed"]
 
     # 3️⃣ Coreference
     coref_payload = coref_request(
@@ -73,7 +75,9 @@ async def pipeline(data: ScrapeRequest):
     )
     coref_result = Coref_Article(**coref_json)
 
+
     # Replace content with coref output
     preprocessed.content = coref_result.content
+    preprocessed.pipeline_status.append("coref_resolved")   
 
     return preprocessed
