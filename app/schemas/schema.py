@@ -1,7 +1,11 @@
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 
 class ScrapeRequest(BaseModel):
     url: str
+
+class item(BaseModel):
+    sent: str | None = None
+    label: str | None = None
 
 class article(BaseModel):
 
@@ -12,6 +16,7 @@ class article(BaseModel):
     error_message: str | None = None
     source: str | None = None
     pipeline_status: str | None = None
+    ner_list: list[item] | None = None # this will hold the ner list in string format. change this according to orchestration method
 
 class coref_request(BaseModel): # the schema for the input request for coreference api. change this according to orchestration method
 
@@ -24,3 +29,4 @@ class Coref_Article(BaseModel): # the schema for the input request for preproces
     content: str | None = None
     url: str
     chains: list | None = None 
+    ner_list: list[item] | None = None # this will hold the ner list in string format. change this according to orchestration method
