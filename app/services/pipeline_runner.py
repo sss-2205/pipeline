@@ -1,4 +1,5 @@
 from starlette.concurrency import run_in_threadpool
+from app.db.supabase_client import supabase
 
 from app.schemas.schema import (
     ScrapeRequest,
@@ -9,68 +10,144 @@ from app.schemas.schema import (
 )
 from app.services.job_store import update_job
 from app.utils.http_client import build_url, post_json
-
+import time
 
 SCRAPE_API = build_url("SCRAPE_API", "api/v1/scrape")
 PREPROCESS_API = build_url("PREPROCESS_API", "api/v1/preprocess")
 COREF_API = build_url("COREF_API", "api/v1/coref")
 BIAS_API = build_url("BIAS_API", "api/v1/bias/inference")
 
-
-async def run_pipeline_job(job_id: str, data: ScrapeRequest) -> None:
+async def run_pipeline_job(job_id: str, data: ScrapeRequest, article_id: str = None) -> None:
     try:
-        update_job(job_id, status="running", step="scraping")
+        start_time = time.time()
 
-        scraped_json = await run_in_threadpool(
-            post_json,
-            SCRAPE_API,
-            {"url": str(data.url)}
-        )
-        scraped_article = article(**scraped_json)
-        scraped_article.pipeline_status = ["scraped"]
+        # ------------------ SCRAPING ------------------
+        try:
+            update_job(job_id, status="running", step="scraping")
 
-        update_job(job_id, status="running", step="preprocessing")
+            scraped_json = await run_in_threadpool(
+                post_json,
+                SCRAPE_API,
+                {"url": str(data.url)},
+                article_id
+            )
 
-        preprocessed_json = await run_in_threadpool(
-            post_json,
-            PREPROCESS_API,
-            scraped_article.model_dump()
-        )
-        preprocessed = article(**preprocessed_json)
-        preprocessed.pipeline_status = scraped_article.pipeline_status + ["preprocessed"]
+            print("SCRAPE RESPONSE:", scraped_json)
 
-        update_job(job_id, status="running", step="coreference")
+            scraped_article = article(**scraped_json)
 
-        coref_payload = coref_request(
-            content=preprocessed.content,
-            url=str(preprocessed.url)
-        )
+        except Exception as e:
+            raise Exception(f"[SCRAPING FAILED] {str(e)}")
 
-        coref_json = await run_in_threadpool(
-            post_json,
-            COREF_API,
-            coref_payload.model_dump()
-        )
-        coref_result = Coref_Article(**coref_json)
+        # ------------------ DB INSERT/UPDATE ------------------
+        try:
+            print("ARTICLE ID BEFORE DB:", article_id)
 
-        preprocessed.content = coref_result.content
-        if preprocessed.pipeline_status is None:
-            preprocessed.pipeline_status = []
-        preprocessed.pipeline_status.append("coref_resolved")
+            if article_id:
+                supabase.table("articles").update({
+                    "title": scraped_article.title,
+                    "source": scraped_article.source,
+                    "url": str(scraped_article.url),
+                    "raw_text": scraped_article.content
+                }).eq("article_id", article_id).execute()
+            else:
+                response = supabase.table("articles").insert({
+                    "title": scraped_article.title,
+                    "source": scraped_article.source,
+                    "url": str(scraped_article.url),
+                    "raw_text": scraped_article.content
+                }).execute()
 
-        update_job(job_id, status="running", step="bias_inference")
+                print("INSERT RESPONSE:", response.data)
 
-        bias_payload = {
-            "ner_list": [i.model_dump() for i in (coref_result.ner_list or [])]
-        }
+                article_id = response.data[0]["article_id"]
 
-        bias_json = await run_in_threadpool(
-            post_json,
-            BIAS_API,
-            bias_payload
-        )
-        bias_score_result = Inference_Response(**bias_json)
+        except Exception as e:
+            raise Exception(f"[DB INSERT/UPDATE FAILED] {str(e)}")
 
+        # ------------------ PREPROCESS ------------------
+        try:
+            update_job(job_id, status="running", step="preprocessing")
+
+            preprocessed_json = await run_in_threadpool(
+                post_json,
+                PREPROCESS_API,
+                scraped_article.model_dump(),
+                article_id
+            )
+
+            print("PREPROCESS RESPONSE:", preprocessed_json)
+
+            preprocessed = article(**preprocessed_json)
+
+            supabase.table("articles").update({
+                "cleaned_text": preprocessed.content
+            }).eq("article_id", article_id).execute()
+
+        except Exception as e:
+            raise Exception(f"[PREPROCESS FAILED] {str(e)}")
+
+        # ------------------ COREF ------------------
+        try:
+            update_job(job_id, status="running", step="coreference")
+
+            coref_payload = coref_request(
+                content=preprocessed.content,
+                url=str(preprocessed.url)
+            )
+
+            coref_json = await run_in_threadpool(
+                post_json,
+                COREF_API,
+                coref_payload.model_dump(),
+            )
+
+            print("COREF RESPONSE:", coref_json)
+
+            coref_result = Coref_Article(**coref_json)
+
+        except Exception as e:
+            raise Exception(f"[COREF FAILED] {str(e)}")
+
+        # ------------------ BIAS ------------------
+        try:
+            update_job(job_id, status="running", step="bias_inference")
+
+            bias_payload = {
+                "ner_list": [i.model_dump() for i in (coref_result.ner_list or [])]
+            }
+
+            bias_json = await run_in_threadpool(
+                post_json,
+                BIAS_API,
+                bias_payload,
+            )
+
+            print("BIAS RESPONSE:", bias_json)
+
+            bias_score_result = Inference_Response(**bias_json)
+
+        except Exception as e:
+            raise Exception(f"[BIAS FAILED] {str(e)}")
+
+        # ------------------ SCORE INSERT ------------------
+        try:
+            score_insert = {
+                "article_id": article_id,
+                "bias_score": bias_score_result.aggregate_score,
+                "label": bias_score_result.aggregate_label,
+                "median_score": bias_score_result.median_score,
+                "mode_score": bias_score_result.mode_value
+            }
+
+            print("SCORE INSERT:", score_insert)
+
+            supabase.table("article_scores").insert(score_insert).execute()
+
+        except Exception as e:
+            raise Exception(f"[SCORE INSERT FAILED] {str(e)}")
+
+        # ------------------ DONE ------------------
         update_job(
             job_id,
             status="completed",
@@ -80,9 +157,11 @@ async def run_pipeline_job(job_id: str, data: ScrapeRequest) -> None:
         )
 
     except Exception as e:
+        print("❌ FINAL ERROR:", str(e))
+
         update_job(
             job_id,
             status="failed",
-            step="error",
+            step=str(e).split("]")[0].replace("[", ""),  # extract step name
             error=str(e),
         )
