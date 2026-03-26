@@ -1,5 +1,22 @@
+-- Permissions run these permisions once on supabase SQl editor after the schema, views and indexes are executed
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT ALL ON TABLES TO anon, authenticated, service_role;
+
+CREATE POLICY "Allow all access"
+ON articles
+FOR ALL
+USING (true);
+NOTIFY pgrst, 'reload schema';
+
+
+
+
+
 -- Enable UUID generation
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+SET TIME ZONE 'Asia/Kolkata';
 
 --------------------------------------------------
 -- ARTICLES
@@ -9,9 +26,9 @@ CREATE TABLE IF NOT EXISTS articles (
     title           TEXT,
     source          VARCHAR(100),
     url             TEXT UNIQUE NOT NULL,
-    language        VARCHAR(10),
     raw_text        TEXT,
-    cleaned_text    TEXT
+    cleaned_text    TEXT,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 --------------------------------------------------
@@ -22,11 +39,15 @@ CREATE TABLE IF NOT EXISTS article_scores (
     article_id      UUID NOT NULL REFERENCES articles(article_id) ON DELETE CASCADE,
     bias_score      DOUBLE PRECISION,
     label           VARCHAR(20),
-    tags            TEXT[],
     median_score      DOUBLE PRECISION,
-    mode_score      DOUBLE PRECISION
+    mode_score      VARCHAR(20)
 
 );
+
+ALTER TABLE article_scores
+ADD CONSTRAINT check_label 
+CHECK (label IN ('anti-BJP', 'neutral','pro-BJP', 'anti-Congress','pro-Congress'));
+
 
 --------------------------------------------------
 -- REQUEST HISTORY
@@ -39,3 +60,7 @@ CREATE TABLE IF NOT EXISTS request_history (
     status_message   TEXT,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+
+
+

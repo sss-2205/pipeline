@@ -7,12 +7,12 @@
 # """
 # def get_dashboard_data():
 #     pass
+
 from fastapi import APIRouter
 from app.db.dashboard import get_dashboard_summary, get_source_label_bias, get_top_sources
+# router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
-
-
+router=APIRouter()
 @router.get("/summary")
 def dashboard_summary():
     return get_dashboard_summary()

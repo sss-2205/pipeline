@@ -6,16 +6,17 @@ def get_dashboard_summary():
     total_res = supabase.table("articles").select("article_id", count="exact").execute()
     total_articles = total_res.count or 0
 
-    # 2. Average bias score
-    avg_res = supabase.rpc("avg_bias_score").execute()
-    avg_score = avg_res.data[0]["avg"] if avg_res.data else 0
+    # 2. Average bias score (from view not RPC)
+    avg_res = supabase.table("article_with_score").select("bias_score").execute()
+    scores = [row["bias_score"] for row in avg_res.data if row["bias_score"] is not None]
+    avg_score = sum(scores) / len(scores) if scores else 0
 
-    # 3. Label distribution
-    label_res = supabase.rpc("label_distribution").execute()
+    # 3. Label distribution (use view)
+    label_res = supabase.table("bias_distribution").select("*").execute()
     label_data = {row["label"]: row["count"] for row in label_res.data} if label_res.data else {}
 
-    # 4. Source comparison
-    source_res = supabase.rpc("source_bias").execute()
+    # 4. Source comparison (use view)
+    source_res = supabase.table("source_label_avg_bias").select("*").execute()
     top_sources = source_res.data if source_res.data else []
 
     return {
