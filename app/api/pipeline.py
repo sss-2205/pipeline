@@ -28,6 +28,7 @@ async def create_pipeline_job(
         build_url("PREPROCESS_API", "api/v1/preprocess")
         build_url("COREF_API", "api/v1/coref")
         build_url("BIAS_API", "api/v1/bias/inference")
+        build_url("EXPLAIN_API", "api/explain")
     except RuntimeError as e:
         raise HTTPException(status_code=5005, detail=str(e))
     
@@ -36,12 +37,16 @@ async def create_pipeline_job(
     
     # Fully cached → return completed immediately
     if cached_status and isinstance(cached, dict):
-        cached_data={
-        "aggregate_score": cached.get('bias_score'),
-        "aggregate_label": cached.get('label'),
-        "median_score": cached.get('median_score'),
-        "mode_value": cached.get('mode_score')
-    }
+        cached_data = {
+    "bias": {
+        "bjp_axis": cached.get("bjp_axis"),
+        "congress_axis": cached.get("congress_axis"),
+        "median_score": cached.get("median_score"),
+        "mode_value": cached.get("mode_value"),
+        "scored_list": cached.get("scored_list"),
+    },
+    "explainability": cached.get("explainability")
+}
         create_job(
             job_id,
             status="completed",

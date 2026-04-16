@@ -7,15 +7,18 @@ from app.schemas.schema import (
     coref_request,
     Coref_Article,
     Inference_Response,
+    ExplainRequest,ExplainResponse,
+    FinalResult
 )
 from app.services.job_store import update_job
 from app.utils.http_client import build_url, post_json
 import time
-
+import json
 SCRAPE_API = build_url("SCRAPE_API", "api/v1/scrape")
 PREPROCESS_API = build_url("PREPROCESS_API", "api/v1/preprocess")
 COREF_API = build_url("COREF_API", "api/v1/coref")
 BIAS_API = build_url("BIAS_API", "api/v1/bias/inference")
+EXPLAIN_API = build_url("EXPLAIN_API", "api/explain")
 
 async def run_pipeline_job(job_id: str, data: ScrapeRequest, article_id: str = None) -> None:
     try:
@@ -126,6 +129,7 @@ async def run_pipeline_job(job_id: str, data: ScrapeRequest, article_id: str = N
             print("BIAS RESPONSE:", bias_json)
 
             bias_score_result = Inference_Response(**bias_json)
+            
 
         except Exception as e:
             raise Exception(f"[BIAS FAILED] {str(e)}")
@@ -134,10 +138,11 @@ async def run_pipeline_job(job_id: str, data: ScrapeRequest, article_id: str = N
         try:
             score_insert = {
                 "article_id": article_id,
-                "bias_score": bias_score_result.aggregate_score,
-                "label": bias_score_result.aggregate_label,
+                "bjp_axis": bias_score_result.bjp_axis,
+                "congress_axis": bias_score_result.congress_axis,
+                "scored_list": [i.model_dump() for i in bias_score_result.scored_list],
                 "median_score": bias_score_result.median_score,
-                "mode_score": bias_score_result.mode_value
+                "mode_value": bias_score_result.mode_value
             }
 
             print("SCORE INSERT:", score_insert)
@@ -147,12 +152,58 @@ async def run_pipeline_job(job_id: str, data: ScrapeRequest, article_id: str = N
         except Exception as e:
             raise Exception(f"[SCORE INSERT FAILED] {str(e)}")
 
+        
+        # ------------------ EXPLAINABILITY ------------------
+    
+        try:
+            update_job(job_id, status="running", step="explainability")
+
+            explain_payload = ExplainRequest(
+    bjp_axis=bias_score_result.bjp_axis,
+    congress_axis=bias_score_result.congress_axis,
+    scored_list=bias_score_result.scored_list   # ✅ FIX
+)
+            # print("FINAL PAYLOAD:", json.dumps(explain_payload.model_dump(), indent=2))
+
+            explain_json = await run_in_threadpool(
+                post_json,
+                EXPLAIN_API,
+                explain_payload.model_dump(),
+            )
+
+            print("EXPLAIN RESPONSE:", explain_json)
+
+
+            explain_result = ExplainResponse(**explain_json)
+
+            
+
+        except Exception as e:
+            raise Exception(f"[explainer FAILED] {str(e)}")
+
+        # ------------------ SCORE INSERT ------------------
+    #     bias_explanation: str
+    # overall_interpretation: str
+    # axis_analysis: Dict[str, str]
+    # evidence: List[str]
+    # confidence_note: str
+    # alternative_sources:
+        try:
+             supabase.table("article_scores").update({"explainability": explain_result.model_dump()}).eq("article_id", article_id).execute()
+
+        except Exception as e:
+            raise Exception(f"[SCORE EXPLANATION INSERT FAILED] {str(e)}")
+
         # ------------------ DONE ------------------
+        result_data = {
+    "bias": bias_score_result.model_dump(),
+    "explainability": explain_result.model_dump()
+}
         update_job(
             job_id,
             status="completed",
             step="done",
-            result=bias_score_result.model_dump(),
+            result=FinalResult(**result_data),
             error=None,
         )
 

@@ -65,7 +65,7 @@ def get_cached_article(url: str):
         if res.data:
             row = res.data[0]
 
-            if row.get('bias_score') is not None:
+            if row.get('median_score') is not None:
                 return (True, row)   # fully cached
             else:
                 return (False, row)  # exists but not processed
