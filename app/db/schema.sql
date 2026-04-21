@@ -1,14 +1,13 @@
 -- Permissions run these permisions once on supabase SQl editor after the schema, views and indexes are executed
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-GRANT ALL ON TABLES TO anon, authenticated, service_role;
 
-CREATE POLICY "Allow all access"
-ON articles
-FOR ALL
-USING (true);
-NOTIFY pgrst, 'reload schema';
+GRANT SELECT, INSERT, UPDATE, DELETE 
+ON ALL TABLES IN SCHEMA public 
+TO anon, authenticated, service_role;
+
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT SELECT, INSERT, UPDATE, DELETE 
+ON TABLES TO anon, authenticated, service_role;
 
 
 
@@ -37,30 +36,44 @@ CREATE TABLE IF NOT EXISTS articles (
 CREATE TABLE IF NOT EXISTS article_scores (
     score_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     article_id      UUID NOT NULL REFERENCES articles(article_id) ON DELETE CASCADE,
-    bias_score      DOUBLE PRECISION,
-    label           VARCHAR(20),
-    median_score      DOUBLE PRECISION,
-    mode_score      VARCHAR(20)
 
-);
+    bjp_axis        DOUBLE PRECISION,
+    congress_axis   DOUBLE PRECISION,
 
-ALTER TABLE article_scores
-ADD CONSTRAINT check_label 
-CHECK (label IN ('anti-BJP', 'neutral','pro-BJP', 'anti-Congress','pro-Congress'));
+    median_score    DOUBLE PRECISION,
+    mode_value      varchar(75),
+
+    scored_list     JSONB,
+    explainability  JSONB
+    );
+
 
 
 --------------------------------------------------
 -- REQUEST HISTORY
 --------------------------------------------------
 CREATE TABLE IF NOT EXISTS request_history (
-    request_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    article_id      UUID REFERENCES articles(article_id) ON DELETE SET NULL,
-    status_code     INT,
+    request_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    article_id       UUID REFERENCES articles(article_id) ON DELETE SET NULL,
+    status_code      INT,
     response_time_ms INT,
     status_message   TEXT,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 
 
 
+-- Alter permissions for the tables
+ALTER TABLE articles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE article_scores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE request_history ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow all articles"
+ON articles FOR ALL USING (true);
+
+CREATE POLICY "Allow all scores"
+ON article_scores FOR ALL USING (true);
+
+CREATE POLICY "Allow all requests"
+ON request_history FOR ALL USING (true);
